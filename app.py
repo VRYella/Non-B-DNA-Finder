@@ -23,7 +23,7 @@ GGGTTTAGGGGGGAGGGGCTGCTGCTGCATGCGGGAAGGGAGGGTAGAGGGTCCGGTAGGAACCCCTAACCCCTAA
 GAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG
 """
 
-# ======= INSERT CUSTOM STYLES AND FONTS HERE =======
+# ======= STYLES AND FONTS =======
 st.markdown("""
     <link href="https://fonts.googleapis.com/css?family=Montserrat:400,700&display=swap" rel="stylesheet">
     <style>
@@ -34,9 +34,7 @@ st.markdown("""
             background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
             color: #222;
         }
-        div[data-testid="stSidebar"] label, 
-        div[data-testid="stSidebar"] .css-1v0mbdj p,  
-        div[data-testid="stSidebar"] .css-1q3b5z2 {
+        div[data-testid="stSidebar"] label {
             font-size: 22px !important;
             color: #1A5276 !important;
             font-family: 'Montserrat', sans-serif !important;
@@ -65,7 +63,7 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-# ======= END CUSTOM STYLES =======
+# ======= END STYLES =======
 
 st.set_page_config(page_title="Non-B DNA Motif Finder", layout="wide")
 
@@ -75,30 +73,51 @@ if 'df' not in st.session_state:
     st.session_state['df'] = pd.DataFrame()
 if 'motif_results' not in st.session_state:
     st.session_state['motif_results'] = []
+if 'analysis_status' not in st.session_state:
+    st.session_state['analysis_status'] = ""
+if 'stop_analysis' not in st.session_state:
+    st.session_state['stop_analysis'] = False
 
-PAGES = ["Home", "Upload & Analyze", "Results", "Visualization", "Download", "Additional Information"]
+PAGES = [
+    "Home",
+    "Upload & Analyze",
+    "Results",
+    "Visualization",
+    "Download",
+    "Additional Information"
+]
 
 st.sidebar.markdown('<div class="sidebar-title">🧬 Navigation</div>', unsafe_allow_html=True)
 page = st.sidebar.radio("", PAGES, key="nav_radio")
 
-def collect_all_motifs(seq):
+def collect_all_motifs(seq, status_callback=None, stop_flag=None):
     results = []
-    results += find_gquadruplex(seq)
-    results += find_imotif(seq)
-    results += find_gtriplex(seq)
-    results += find_bipartite_gquadruplex(seq)
-    results += find_multimeric_gquadruplex(seq)
-    results += find_zdna(seq)
-    results += find_hdna(seq)
-    results += find_sticky_dna(seq)
-    results += find_slipped_dna(seq)
-    results += find_cruciform(seq)
-    results += find_bent_dna(seq)
-    results += find_apr(seq)
-    results += find_mirror_repeat(seq)
-    results += find_quadruplex_triplex_hybrid(seq)
-    results += find_cruciform_triplex_junction(seq)
-    results += find_g4_imotif_hybrid(seq)
+    motif_steps = [
+        ("Searching for G-Quadruplex motifs...", find_gquadruplex),
+        ("Searching for i-Motif motifs...", find_imotif),
+        ("Searching for G-Triplex motifs...", find_gtriplex),
+        ("Searching for Bipartite G-Quadruplex motifs...", find_bipartite_gquadruplex),
+        ("Searching for Multimeric G-Quadruplex motifs...", find_multimeric_gquadruplex),
+        ("Searching for Z-DNA motifs...", find_zdna),
+        ("Searching for H-DNA motifs...", find_hdna),
+        ("Searching for Sticky DNA motifs...", find_sticky_dna),
+        ("Searching for Slipped DNA motifs...", find_slipped_dna),
+        ("Searching for Cruciform motifs...", find_cruciform),
+        ("Searching for Bent DNA motifs...", find_bent_dna),
+        ("Searching for APR motifs...", find_apr),
+        ("Searching for Mirror Repeat motifs...", find_mirror_repeat),
+        ("Searching for Quadruplex-Triplex Hybrid motifs...", find_quadruplex_triplex_hybrid),
+        ("Searching for Cruciform-Triplex Junction motifs...", find_cruciform_triplex_junction),
+        ("Searching for G4-iMotif Hybrid motifs...", find_g4_imotif_hybrid),
+    ]
+    for status, func in motif_steps:
+        if stop_flag is not None and stop_flag():
+            if status_callback is not None:
+                status_callback("Motif search stopped by user.")
+            return []
+        if status_callback is not None:
+            status_callback(status)
+        results += func(seq)
     # Remove overlapping motifs (keep highest score if numeric)
     results = sorted(results, key=lambda x: (x['Start'], -float(x['Score']) if str(x['Score']).replace('.','',1).isdigit() else 0))
     nonoverlap = []
@@ -146,19 +165,42 @@ elif page == "Upload & Analyze":
             except Exception:
                 st.error("Paste a valid FASTA or sequence.")
 
-    if st.button("Run Analysis"):
+    # Run Analysis and Stop/Reset Buttons
+    colA, colB, colC = st.columns([1, 0.6, 0.8])
+    with colA:
+        run_analysis = st.button("Run Analysis")
+    with colB:
+        stop_analysis = st.button("Stop/Reset")
+    analysis_placeholder = st.empty()
+
+    if run_analysis:
+        st.session_state['stop_analysis'] = False
         seq = st.session_state.get('seq', "")
         if not seq or not re.match("^[ATGC]+$", seq):
             st.error("Please upload or paste a valid DNA sequence (A/T/G/C only).")
         else:
+            progress_placeholder = st.empty()
+            def update_status(msg):
+                progress_placeholder.info(msg)
+            def stop_flag():
+                return st.session_state.get('stop_analysis', False)
             with st.spinner("Analyzing sequence ..."):
-                results = collect_all_motifs(seq)
+                results = collect_all_motifs(seq, status_callback=update_status, stop_flag=stop_flag)
                 st.session_state['motif_results'] = results
                 st.session_state['df'] = pd.DataFrame(results)
-            if not results:
+            progress_placeholder.empty()
+            if st.session_state.get('stop_analysis', False):
+                st.warning("Motif search was stopped.")
+            elif not results:
                 st.warning("No non-B DNA motifs detected in this sequence.")
             else:
                 st.success(f"Detected {len(results)} motif region(s) in {len(seq):,} bp.")
+
+    if stop_analysis:
+        st.session_state['stop_analysis'] = True
+        st.session_state['motif_results'] = []
+        st.session_state['df'] = pd.DataFrame()
+        analysis_placeholder.warning("Motif search has been reset. You may run a new analysis.")
 
 elif page == "Results":
     st.header("Motif Detection Results")
@@ -247,21 +289,73 @@ elif page == "Additional Information":
     - Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
     """)
     st.markdown("---")
-    st.subheader("How Are Motifs Predicted?")
+    st.subheader("How Are Motifs Predicted? (Technical, Stepwise Details)")
     st.markdown("""
-    This app uses a set of well-established computational algorithms and regular expressions to identify non-B DNA motifs within a given sequence. Each motif type is detected using a specific pattern or algorithm:
-
-    - **G-Quadruplex & i-Motif:** Identified using regular expressions matching runs of guanines (G) or cytosines (C) separated by short loops. The G4Hunter score, based on G/C richness and distribution, quantifies their potential.
-    - **G-Triplex, Bipartite G4, Multimeric G4:** Variants of G-quadruplexes found using similar patterns, sometimes requiring proximity or tandem arrangements.
-    - **Z-DNA:** Detected as long stretches of alternating purines/pyrimidines. Scored using the Z-Seeker algorithm, which considers sequence composition.
-    - **H-DNA, Sticky DNA, Slipped DNA:** Recognized by mirror repeats, long homopurine/homopyrimidine tracts, or direct repeats with small spacers.
-    - **Cruciform DNA:** Detected as inverted repeats where the arms are reverse complements. Arm length is reported as a score.
-    - **Bent DNA, APR:** Identified by periodic A-tracts; the tract length is used in scoring.
-    - **Mirror Repeats:** Found by searching for symmetric sequences flanking a central region.
-    - **Hybrid Motifs:** Motifs that combine features (e.g., G4 and triplex) within close proximity are detected by composite patterns.
-
-    All motif searches are non-overlapping for clarity, and sequence regions are reported with precise start/end positions and lengths. For each detected motif, a scoring method is provided (e.g., G4Hunter, repeat count), allowing for ranking or filtering of results.
-    """)
+<b>G-Quadruplex:</b><br>
+Pattern: Four runs of G (≥3) separated by 1–7 bases.<br>
+Steps: Regex scan. Each match scored by G4Hunter.<br>
+<br>
+<b>i-Motif:</b><br>
+Pattern: Four runs of C (≥3) separated by 1–7 bases.<br>
+Steps: Regex scan. Each match scored by G4Hunter (as negative value).<br>
+<br>
+<b>G-Triplex:</b><br>
+Pattern: Three runs of G (≥3) separated by 1–7 bases, not matching G4 pattern.<br>
+Steps: Regex scan, exclude G4s. Score = 0.7 × G4Hunter.<br>
+<br>
+<b>Bipartite G4:</b><br>
+Pattern: Two G-quadruplexes within 100 nt.<br>
+Steps: Regex for two G4s separated by ≤100 bases. Score: mean G4Hunter.<br>
+<br>
+<b>Multimeric G4:</b><br>
+Pattern: Multiple tandem G4s (≥2) separated by ≤50 nt.<br>
+Steps: Regex for multiple G4s. Score: mean G4Hunter.<br>
+<br>
+<b>Z-DNA:</b><br>
+Pattern: Alternating purine/pyrimidine dinucleotides (>10 bp).<br>
+Steps: Regex for (GC|CG|GT|TG|AC|CA) repeats. Score: Z-Seeker.<br>
+<br>
+<b>H-DNA:</b><br>
+Pattern: Homopurine/homopyrimidine mirror repeats (≥10 nt) with ≤8 nt spacer.<br>
+Steps: Regex for repeats, no score.<br>
+<br>
+<b>Sticky DNA:</b><br>
+Pattern: ≥5 GAA or TTC repeats.<br>
+Steps: Regex for runs, score = number of repeats.<br>
+<br>
+<b>Slipped DNA:</b><br>
+Pattern: Direct repeats of 10–25 nt, separated by ≤10 nt.<br>
+Steps: Regex for repeats, score = repeat region length.<br>
+<br>
+<b>Cruciform DNA:</b><br>
+Pattern: Inverted repeats (arms ≥6 nt, loop ≤100 nt).<br>
+Steps: For arm/loop sizes, scan for inverted repeats; verify reverse complement.<br>
+Score: arm length.<br>
+<br>
+<b>Bent DNA:</b><br>
+Pattern: ≥3 A-tracts (3–11 nt) with 3–11 nt spacers.<br>
+Steps: Regex for periodic A-tracts, score = tract length.<br>
+<br>
+<b>APR:</b><br>
+Pattern: Same as Bent DNA.<br>
+Steps: As above.<br>
+<br>
+<b>Mirror Repeats:</b><br>
+Pattern: Two arms (≥10 nt) flanking ≤100 nt loop, arms are mirrors.<br>
+Steps: Regex for arms, verify left is reverse of right.<br>
+<br>
+<b>Quadruplex-Triplex Hybrid:</b><br>
+Pattern: G4 and triplex within 100 nt.<br>
+Steps: Regex for G4 plus triplex, no score.<br>
+<br>
+<b>Cruciform-Triplex Junction:</b><br>
+Pattern: Cruciform arms with triplex nearby.<br>
+Steps: Regex for pattern, no score.<br>
+<br>
+<b>G4-iMotif Hybrid:</b><br>
+Pattern: G4 and i-motif within 100 nt.<br>
+Steps: Find all G4s/i-motifs, report if within 100 nt.<br>
+""", unsafe_allow_html=True)
 
 st.markdown("""
 ---
