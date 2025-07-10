@@ -2,7 +2,6 @@ import re
 from utils import wrap, gc_content, reverse_complement, g4hunter_score, zseeker_score
 
 def non_overlapping_finditer(pattern, seq):
-    # Helper: yield non-overlapping regex matches
     i = 0
     n = len(seq)
     regex = re.compile(pattern)
@@ -10,19 +9,38 @@ def non_overlapping_finditer(pattern, seq):
         m = regex.search(seq, i)
         if not m: break
         yield m
-        i = m.end()  # Move to end for non-overlap
+        i = m.end()
 
+# --- NEW, more specific G4 finders ---
 def find_gquadruplex(seq):
-    # G-Quadruplex: (G3+N1-7){3}G3+
+    # Canonical G4: (G3+N1-7)3G3+
     pattern = r"(G{3,}[ATGC]{1,7}){3}G{3,}"
     return [
-        dict(Class="Quadruplex", Subtype="G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+        dict(Class="Quadruplex", Subtype="Canonical_G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
              Sequence=wrap(m.group()), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group()):.2f}")
         for m in non_overlapping_finditer(pattern, seq)
     ]
 
+def find_relaxed_gquadruplex(seq):
+    # Relaxed G4: (G3+N1-12)3G3+
+    pattern = r"(G{3,}[ATGC]{1,12}){3}G{3,}"
+    return [
+        dict(Class="Quadruplex", Subtype="Relaxed_G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+             Sequence=wrap(m.group()), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group()):.2f}")
+        for m in non_overlapping_finditer(pattern, seq)
+    ]
+
+def find_bulged_gquadruplex(seq):
+    # Bulged G4: allow bulges (up to 3nt) in G-runs
+    pattern = r"G{3,}(?:[ATGC]{0,3}G{3,}){3,}"
+    return [
+        dict(Class="Quadruplex", Subtype="Bulged_G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+             Sequence=wrap(m.group()), ScoreMethod="G4Hunter (bulge)", Score=f"{g4hunter_score(m.group()):.2f}")
+        for m in non_overlapping_finditer(pattern, seq)
+    ]
+
+# --- Existing motif finders from your file, unchanged for backward compatibility ---
 def find_imotif(seq):
-    # i-Motif: (C3+N1-7){3}C3+
     pattern = r"(C{3,}[ATGC]{1,7}){3}C{3,}"
     return [
         dict(Class="Quadruplex", Subtype="i-Motif", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -31,7 +49,6 @@ def find_imotif(seq):
     ]
 
 def find_gtriplex(seq):
-    # G-Triplex: (G3+N1-7){2}G3+, not part of G4
     g4_pat = re.compile(r"(G{3,}[ATGC]{1,7}){3}G{3,}")
     pattern = re.compile(r"(G{3,}[ATGC]{1,7}){2}G{3,}")
     found = []
@@ -41,7 +58,6 @@ def find_gtriplex(seq):
         m = pattern.search(seq, i)
         if not m: break
         region = m.group()
-        # Exclude if this region matches G4
         if not g4_pat.match(region):
             found.append(dict(
                 Class="Quadruplex", Subtype="G-Triplex", Start=m.start()+1, End=m.end(),
@@ -52,7 +68,6 @@ def find_gtriplex(seq):
     return found
 
 def find_bipartite_gquadruplex(seq):
-    # Two G4s separated by ≤100 nt
     pattern = r"((G{3,}[ATGC]{1,7}){3}G{3,})[ATGC]{0,100}((G{3,}[ATGC]{1,7}){3}G{3,})"
     return [
         dict(Class="Quadruplex", Subtype="Bipartite_G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -61,7 +76,6 @@ def find_bipartite_gquadruplex(seq):
     ]
 
 def find_multimeric_gquadruplex(seq):
-    # Multiple tandem G4s (≥2)
     pattern = r"((G{3,}[ATGC]{1,7}){3}G{3,}(?:[ATGC]{1,50}(G{3,}[ATGC]{1,7}){3}G{3,})+)"
     return [
         dict(Class="Quadruplex", Subtype="Multimeric_G-Quadruplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -70,7 +84,6 @@ def find_multimeric_gquadruplex(seq):
     ]
 
 def find_zdna(seq):
-    # Z-DNA (Z-Seeker): alternating purine-pyrimidine >10 bp
     pattern = r"((?:GC|CG|GT|TG|AC|CA){5,})"
     return [
         dict(Class="Z-DNA", Subtype="Z-DNA", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -79,7 +92,6 @@ def find_zdna(seq):
     ]
 
 def find_hdna(seq):
-    # H-DNA: Triplex-forming mirror repeats ≥10 bp, spacer ≤8
     pattern = r"([AG]{10,}|[CT]{10,})([ATGC]{0,8})([AG]{10,}|[CT]{10,})"
     return [
         dict(Class="Triplex", Subtype="H-DNA", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -88,7 +100,6 @@ def find_hdna(seq):
     ]
 
 def find_sticky_dna(seq):
-    # Sticky DNA: long GAA/TTC repeats (≥5 units)
     pattern = r"(?:GAA){5,}|(?:TTC){5,}"
     return [
         dict(Class="Triplex", Subtype="Sticky_DNA", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -97,7 +108,6 @@ def find_sticky_dna(seq):
     ]
 
 def find_slipped_dna(seq):
-    # Direct repeat, ≥10 nt, spacer ≤10 nt
     pattern = r"([ATGC]{10,25})([ATGC]{0,10})\1"
     return [
         dict(Class="Direct Repeat", Subtype="Slipped_DNA", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -106,7 +116,6 @@ def find_slipped_dna(seq):
     ]
 
 def find_cruciform(seq):
-    # Inverted repeats, arms ≥6bp, loop ≤100bp
     matches = []
     n = len(seq)
     for arm in range(6, 21):
@@ -131,7 +140,6 @@ def find_cruciform(seq):
     return matches
 
 def find_bent_dna(seq):
-    # A-tracts or T-tracts, periodic spacing 3-11bp, ≥3 tracts
     pattern = r"(A{3,11})([ATGC]{3,11})(A{3,11})([ATGC]{3,11})(A{3,11})"
     return [
         dict(Class="Bent DNA", Subtype="Bent_DNA", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -140,7 +148,6 @@ def find_bent_dna(seq):
     ]
 
 def find_apr(seq):
-    # At least three A-tracts of 3-11bp, between centers (same as above for now)
     pattern = r"(A{3,11})([ATGC]{3,11})(A{3,11})([ATGC]{3,11})(A{3,11})"
     return [
         dict(Class="Bent DNA", Subtype="APR", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -149,7 +156,6 @@ def find_apr(seq):
     ]
 
 def find_mirror_repeat(seq):
-    # Mirror repeat, arms ≥10, loop ≤100
     pattern = r"([ATGC]{10,})([ATGC]{0,100})([ATGC]{10,})"
     results = []
     for m in non_overlapping_finditer(pattern, seq):
@@ -164,7 +170,6 @@ def find_mirror_repeat(seq):
     return results
 
 def find_quadruplex_triplex_hybrid(seq):
-    # G4 and triplex within 100nt
     pattern = r"(G{3,}[ATGC]{1,7}){3}G{3,}[ATGC]{0,100}([AG]{10,}|[CT]{10,})"
     return [
         dict(Class="Quadruplex-Triplex Hybrid", Subtype="Quadruplex-Triplex_Hybrid", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -173,7 +178,6 @@ def find_quadruplex_triplex_hybrid(seq):
     ]
 
 def find_cruciform_triplex_junction(seq):
-    # Cruciform arms + triplex
     pattern = r"([ATGC]{10,})([ATGC]{0,100})([ATGC]{10,})([ATGC]{0,100})([AG]{10,}|[CT]{10,})"
     return [
         dict(Class="Cruciform-Triplex Junction", Subtype="Cruciform-Triplex_Junctions", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
@@ -181,14 +185,15 @@ def find_cruciform_triplex_junction(seq):
         for m in non_overlapping_finditer(pattern, seq)
     ]
 
+# --- Updated hybrid finder (stricter window) ---
 def find_g4_imotif_hybrid(seq):
-    # G4 and i-motif within 100nt
+    # G4 and i-motif within 20 nt (updated from 100)
     g4s = [(m.start(), m.end()) for m in re.finditer(r"(G{3,}[ATGC]{1,7}){3}G{3,}", seq)]
     imots = [(m.start(), m.end()) for m in re.finditer(r"(C{3,}[ATGC]{1,7}){3}C{3,}", seq)]
     motifs = []
     for g4s_start, g4s_end in g4s:
         for ims_start, ims_end in imots:
-            if abs(g4s_end - ims_start) <= 100 or abs(ims_end - g4s_start) <= 100:
+            if abs(g4s_end - ims_start) <= 20 or abs(ims_end - g4s_start) <= 20:
                 region = seq[min(g4s_start, ims_start):max(g4s_end, ims_end)]
                 motifs.append(dict(
                     Class="Hybrid", Subtype="G4-iMotif_Hybrid",
