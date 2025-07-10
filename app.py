@@ -27,20 +27,15 @@ GAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG
 st.markdown("""
     <link href="https://fonts.googleapis.com/css?family=Montserrat:400,700&display=swap" rel="stylesheet">
     <style>
-        /* Global font */
         html, body, [class*="css"]  {
             font-family: 'Montserrat', sans-serif !important;
         }
-
-        /* Sidebar styles */
         section[data-testid="stSidebar"] {
             background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
             color: #222;
         }
-
-        /* Custom radio label styles (navigation) */
         div[data-testid="stSidebar"] label, 
-        div[data-testid="stSidebar"] .css-1v0mbdj p,  /* fallback for other streamlit versions */
+        div[data-testid="stSidebar"] .css-1v0mbdj p,  
         div[data-testid="stSidebar"] .css-1q3b5z2 {
             font-size: 22px !important;
             color: #1A5276 !important;
@@ -49,18 +44,15 @@ st.markdown("""
             padding: 6px 12px !important;
             border-radius: 8px !important;
         }
-        /* Highlighted radio button */
         div[data-testid="stSidebar"] .stRadio [role="radio"][aria-checked="true"] label {
             background: linear-gradient(90deg,#a1c4fd,#c2e9fb);
             color: #fff !important;
             box-shadow: 0 4px 16px rgba(161,196,253,0.2);
         }
-        /* Unselected hover effect */
         div[data-testid="stSidebar"] .stRadio [role="radio"]:hover label {
             background: #cfdef3;
             color: #2874A6 !important;
         }
-        /* Sidebar title style */
         .sidebar-title {
             font-size: 28px;
             font-family: 'Montserrat', sans-serif;
@@ -86,7 +78,6 @@ if 'motif_results' not in st.session_state:
 
 PAGES = ["Home", "Upload & Analyze", "Results", "Visualization", "Download", "Additional Information"]
 
-# Insert a beautiful navigation title
 st.sidebar.markdown('<div class="sidebar-title">🧬 Navigation</div>', unsafe_allow_html=True)
 page = st.sidebar.radio("", PAGES, key="nav_radio")
 
@@ -254,6 +245,22 @@ elif page == "Additional Information":
     - This app detects a broad array of non-B DNA motifs using reference algorithms.
     - For details, visit [GitHub](https://github.com/VRYella/Non-B-DNA-Finder).
     - Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
+    """)
+    st.markdown("---")
+    st.subheader("How Are Motifs Predicted?")
+    st.markdown("""
+    This app uses a set of well-established computational algorithms and regular expressions to identify non-B DNA motifs within a given sequence. Each motif type is detected using a specific pattern or algorithm:
+
+    - **G-Quadruplex & i-Motif:** Identified using regular expressions matching runs of guanines (G) or cytosines (C) separated by short loops. The G4Hunter score, based on G/C richness and distribution, quantifies their potential.
+    - **G-Triplex, Bipartite G4, Multimeric G4:** Variants of G-quadruplexes found using similar patterns, sometimes requiring proximity or tandem arrangements.
+    - **Z-DNA:** Detected as long stretches of alternating purines/pyrimidines. Scored using the Z-Seeker algorithm, which considers sequence composition.
+    - **H-DNA, Sticky DNA, Slipped DNA:** Recognized by mirror repeats, long homopurine/homopyrimidine tracts, or direct repeats with small spacers.
+    - **Cruciform DNA:** Detected as inverted repeats where the arms are reverse complements. Arm length is reported as a score.
+    - **Bent DNA, APR:** Identified by periodic A-tracts; the tract length is used in scoring.
+    - **Mirror Repeats:** Found by searching for symmetric sequences flanking a central region.
+    - **Hybrid Motifs:** Motifs that combine features (e.g., G4 and triplex) within close proximity are detected by composite patterns.
+
+    All motif searches are non-overlapping for clarity, and sequence regions are reported with precise start/end positions and lengths. For each detected motif, a scoring method is provided (e.g., G4Hunter, repeat count), allowing for ranking or filtering of results.
     """)
 
 st.markdown("""
