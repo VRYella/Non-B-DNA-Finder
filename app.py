@@ -12,7 +12,9 @@ from motifs import (
     find_slipped_dna, find_cruciform, find_bent_dna,
     find_apr, find_mirror_repeat,
     find_quadruplex_triplex_hybrid,
-    find_cruciform_triplex_junction
+    find_cruciform_triplex_junction,
+    find_local_bent,  # <-- make sure this is in motifs.py!
+    find_hotspots     # <-- add to motifs.py!
 )
 from utils import parse_fasta, wrap
 
@@ -107,6 +109,7 @@ def collect_all_motifs(seq, status_callback=None, stop_flag=None):
         ("Searching for Slipped DNA motifs...", find_slipped_dna),
         ("Searching for Cruciform motifs...", find_cruciform),
         ("Searching for Bent DNA motifs...", find_bent_dna),
+        ("Searching for Local Bent motifs...", find_local_bent),  # <-- local bent, A/T runs (6-7)
         ("Searching for APR motifs...", find_apr),
         ("Searching for Mirror Repeat motifs...", find_mirror_repeat),
         ("Searching for Quadruplex-Triplex Hybrid motifs...", find_quadruplex_triplex_hybrid),
@@ -120,16 +123,7 @@ def collect_all_motifs(seq, status_callback=None, stop_flag=None):
         if status_callback is not None:
             status_callback(status)
         results += func(seq)
-    # Remove overlapping motifs (keep highest score if numeric)
-    results = sorted(results, key=lambda x: (x['Start'], -float(str(x['Score']).replace('NA','0').replace('.','',1)) if str(x['Score']).replace('NA','0').replace('.','',1).lstrip('-').isdigit() else 0))
-    nonoverlap = []
-    covered = set()
-    for r in results:
-        covered_range = set(range(r['Start'], r['End'] + 1))
-        if not covered_range & covered:
-            nonoverlap.append(r)
-            covered |= covered_range
-    return nonoverlap
+    return results  # return all (overlapping) results
 
 if page == "Home":
     st.title("Non-B DNA Motif Finder")
@@ -217,6 +211,15 @@ elif page == "Results":
             motif_counts = df["Subtype"].value_counts().reset_index()
             motif_counts.columns = ["Motif Type", "Count"]
             st.dataframe(motif_counts, use_container_width=True, hide_index=True)
+        # --- Hotspot Table ---
+        st.subheader("Multi-Conformational Hot Spot Regions (≥3 motifs in 100nt window)")
+        seq = st.session_state.get('seq', "")
+        if not df.empty and seq:
+            hotspots = find_hotspots(seq, df.to_dict('records'), window=100, min_count=3)
+            if hotspots:
+                st.dataframe(pd.DataFrame(hotspots))
+            else:
+                st.info("No hotspot regions detected with 3 or more motifs in any 100nt window.")
 
 elif page == "Visualization":
     st.header("Motif Visualization")
