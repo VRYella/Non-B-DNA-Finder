@@ -5,7 +5,10 @@ import seaborn as sns
 import re, io
 from datetime import datetime
 from motifs import (
-    all_motifs, find_hotspots
+    all_motifs,
+    find_gquadruplex, find_relaxed_gquadruplex, find_bulged_gquadruplex, find_gtriplex,
+    find_bipartite_gquadruplex, find_multimeric_gquadruplex,
+    find_imotif, find_hotspots
 )
 from utils import parse_fasta, wrap
 
