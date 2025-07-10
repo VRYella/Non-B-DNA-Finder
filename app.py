@@ -5,67 +5,11 @@ import seaborn as sns
 import re, io
 from datetime import datetime
 from motifs import (
-    find_gquadruplex, find_relaxed_gquadruplex, find_bulged_gquadruplex, find_gtriplex,
-    find_bipartite_gquadruplex, find_multimeric_gquadruplex,
-    find_imotif, find_g4_imotif_hybrid,
-    find_zdna, find_hdna, find_sticky_dna,
-    find_slipped_dna, find_cruciform, find_bent_dna,
-    find_apr, find_mirror_repeat,
-    find_quadruplex_triplex_hybrid,
-    find_cruciform_triplex_junction,
-    find_local_bent,  # <-- make sure this is in motifs.py!
-    find_hotspots     # <-- add to motifs.py!
+    all_motifs, find_hotspots
 )
 from utils import parse_fasta, wrap
 
-EXAMPLE_FASTA = """>Example
-ATCGATCGATCGAAAATTTTATTTAAATTTAAATTTGGGTTAGGGTTAGGGTTAGGGCCCCCTCCCCCTCCCCCTCCCC
-ATCGATCGCGCGCGCGATCGCACACACACAGCTGCTGCTGCTTGGGAAAGGGGAAGGGTTAGGGAAAGGGGTTT
-GGGTTTAGGGGGGAGGGGCTGCTGCTGCATGCGGGAAGGGAGGGTAGAGGGTCCGGTAGGAACCCCTAACCCCTAA
-GAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG
-"""
-
-# ======= STYLES AND FONTS =======
-st.markdown("""
-    <link href="https://fonts.googleapis.com/css?family=Montserrat:400,700&display=swap" rel="stylesheet">
-    <style>
-        html, body, [class*="css"]  {
-            font-family: 'Montserrat', sans-serif !important;
-        }
-        section[data-testid="stSidebar"] {
-            background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
-            color: #222;
-        }
-        div[data-testid="stSidebar"] label {
-            font-size: 22px !important;
-            color: #1A5276 !important;
-            font-family: 'Montserrat', sans-serif !important;
-            font-weight: bold !important;
-            padding: 6px 12px !important;
-            border-radius: 8px !important;
-        }
-        div[data-testid="stSidebar"] .stRadio [role="radio"][aria-checked="true"] label {
-            background: linear-gradient(90deg,#a1c4fd,#c2e9fb);
-            color: #fff !important;
-            box-shadow: 0 4px 16px rgba(161,196,253,0.2);
-        }
-        div[data-testid="stSidebar"] .stRadio [role="radio"]:hover label {
-            background: #cfdef3;
-            color: #2874A6 !important;
-        }
-        .sidebar-title {
-            font-size: 28px;
-            font-family: 'Montserrat', sans-serif;
-            color: #3B5998;
-            font-weight: bold;
-            margin-bottom: 20px;
-            margin-top: 10px;
-            text-align: center;
-            letter-spacing: 1px;
-        }
-    </style>
-""", unsafe_allow_html=True)
-# ======= END STYLES =======
+EXAMPLE_FASTA = ">Example\nATCGATCGATCGAAAATTTTATTTAAATTTAAATTTGGGTTAGGGTTAGGGTTAGGGCCCCCTCCCCCTCCCCCTCCCC\nATCGATCGCGCGCGCGATCGCACACACACAGCTGCTGCTGCTTGGGAAAGGGGAAGGGTTAGGGAAAGGGGTTT\nGGGTTTAGGGGGGAGGGGCTGCTGCTGCATGCGGGAAGGGAGGGTAGAGGGTCCGGTAGGAACCCCTAACCCCTAA\nGAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG"
 
 st.set_page_config(page_title="Non-B DNA Motif Finder", layout="wide")
 
@@ -86,149 +30,109 @@ PAGES = [
     "Results",
     "Visualization",
     "Download",
-    "Additional Information"
+    "Additional Information",
+    "Motif Definitions Glossary"
 ]
 
-st.sidebar.markdown('<div class="sidebar-title"> Navigation</div>', unsafe_allow_html=True)
-page = st.sidebar.radio("", PAGES, key="nav_radio")
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Go to", PAGES)
+
+st.title("Non-B DNA Motif Finder")
 
 def collect_all_motifs(seq, status_callback=None, stop_flag=None):
-    results = []
-    motif_steps = [
-        ("Searching for Canonical G-Quadruplex motifs...", find_gquadruplex),
-        ("Searching for Relaxed G-Quadruplex motifs...", find_relaxed_gquadruplex),
-        ("Searching for Bulged G-Quadruplex motifs...", find_bulged_gquadruplex),
-        ("Searching for G-Triplex motifs...", find_gtriplex),
-        ("Searching for Bipartite G-Quadruplex motifs...", find_bipartite_gquadruplex),
-        ("Searching for Multimeric G-Quadruplex motifs...", find_multimeric_gquadruplex),
-        ("Searching for i-Motif motifs...", find_imotif),
-        ("Searching for G4-iMotif Hybrid motifs...", find_g4_imotif_hybrid),
-        ("Searching for Z-DNA motifs...", find_zdna),
-        ("Searching for H-DNA motifs...", find_hdna),
-        ("Searching for Sticky DNA motifs...", find_sticky_dna),
-        ("Searching for Slipped DNA motifs...", find_slipped_dna),
-        ("Searching for Cruciform motifs...", find_cruciform),
-        ("Searching for Bent DNA motifs...", find_bent_dna),
-        ("Searching for Local Bent motifs...", find_local_bent),  # <-- local bent, A/T runs (6-7)
-        ("Searching for APR motifs...", find_apr),
-        ("Searching for Mirror Repeat motifs...", find_mirror_repeat),
-        ("Searching for Quadruplex-Triplex Hybrid motifs...", find_quadruplex_triplex_hybrid),
-        ("Searching for Cruciform-Triplex Junction motifs...", find_cruciform_triplex_junction),
-    ]
-    for status, func in motif_steps:
-        if stop_flag is not None and stop_flag():
-            if status_callback is not None:
-                status_callback("Motif search stopped by user.")
-            return []
-        if status_callback is not None:
-            status_callback(status)
-        results += func(seq)
-    return results  # return all (overlapping) results
+    if status_callback:
+        status_callback("Scanning for non-B DNA motifs using non-overlapping regex patterns...")
+    if stop_flag and stop_flag():
+        return []
+    return all_motifs(seq)
 
 if page == "Home":
-    st.title("Non-B DNA Motif Finder")
+    st.markdown("""
+    <style>
+    .home-header {
+        font-size: 2.5em;
+        font-weight: bold;
+        color: #1A5276;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    </style>
+    <div class='home-header'>Welcome to Non-B DNA Motif Finder</div>
+    """, unsafe_allow_html=True)
     try:
         st.image("nbd.PNG", use_container_width=True)
     except Exception:
         st.warning("Logo image (nbd.PNG) not found. Place it in the app folder.")
-
     st.markdown("""
-    **Comprehensive, fast, and reference-grade non-B DNA motif finder.**
-    - Canonical, Relaxed, Bulged, Multimeric, Bipartite G-quadruplex, i-Motif, G-Triplex, G4-iMotif Hybrid, Z-DNA, Cruciform, H-DNA, Sticky DNA, Direct/Mirror Repeats, STRs, local bends, flexible regions, and more.
-    - Export to CSV/Excel, motif visualization included.
+    This application allows you to identify and visualize various non-B DNA motifs including:
+    - Canonical and non-canonical G-quadruplexes
+    - i-Motifs, Z-DNA, Cruciforms, and more
+    
+    Upload a sequence or use the example to begin.
     """)
 
 elif page == "Upload & Analyze":
-    st.header("Input Sequence")
-    col1, col2 = st.columns([1,1])
-    with col1:
-        fasta_file = st.file_uploader("Upload FASTA file", type=["fa", "fasta", "txt"])
-        if fasta_file:
-            try:
-                seq = parse_fasta(fasta_file.read().decode("utf-8"))
-                st.session_state['seq'] = seq
-                st.success("FASTA file loaded!")
-            except Exception:
-                st.error("Could not parse file as UTF-8 or FASTA.")
-    with col2:
-        if st.button("Use Example Sequence"):
-            st.session_state['seq'] = parse_fasta(EXAMPLE_FASTA)
-        seq_input = st.text_area("Paste sequence (FASTA or raw)", value=st.session_state.get('seq', ""), height=120)
-        if seq_input:
-            try:
-                seq = parse_fasta(seq_input)
-                st.session_state['seq'] = seq
-            except Exception:
-                st.error("Paste a valid FASTA or sequence.")
+    st.markdown("<h2 style='color:#1A5276;'>Upload & Analyze</h2>", unsafe_allow_html=True)
+    fasta_file = st.file_uploader("Upload FASTA file", type=["fa", "fasta", "txt"])
+    if fasta_file:
+        seq = parse_fasta(fasta_file.read().decode("utf-8"))
+        st.session_state['seq'] = seq
+        st.success("FASTA loaded.")
 
-    # Run Analysis and Stop/Reset Buttons
-    colA, colB, colC = st.columns([1, 0.6, 0.8])
-    with colA:
-        run_analysis = st.button("Run Analysis")
-    with colB:
-        stop_analysis = st.button("Stop/Reset")
-    analysis_placeholder = st.empty()
+    if st.button("Use Example Sequence"):
+        st.session_state['seq'] = parse_fasta(EXAMPLE_FASTA)
 
-    if run_analysis:
-        st.session_state['stop_analysis'] = False
-        seq = st.session_state.get('seq', "")
+    seq_input = st.text_area("Paste Sequence (FASTA or Raw)", value=st.session_state.get('seq', ''), height=150)
+    if seq_input:
+        try:
+            st.session_state['seq'] = parse_fasta(seq_input)
+        except Exception:
+            st.error("Invalid FASTA or sequence.")
+
+    if st.button("Run Motif Analysis"):
+        seq = st.session_state.get('seq', '')
         if not seq or not re.match("^[ATGC]+$", seq):
-            st.error("Please upload or paste a valid DNA sequence (A/T/G/C only).")
+            st.error("Please input a valid A/T/G/C sequence.")
         else:
-            progress_placeholder = st.empty()
-            def update_status(msg):
-                progress_placeholder.info(msg)
-            def stop_flag():
-                return st.session_state.get('stop_analysis', False)
-            with st.spinner("Analyzing sequence ..."):
-                results = collect_all_motifs(seq, status_callback=update_status, stop_flag=stop_flag)
+            with st.spinner("Running motif analysis..."):
+                results = collect_all_motifs(seq)
                 st.session_state['motif_results'] = results
                 st.session_state['df'] = pd.DataFrame(results)
-            progress_placeholder.empty()
-            if st.session_state.get('stop_analysis', False):
-                st.warning("Motif search was stopped.")
-            elif not results:
-                st.warning("No non-B DNA motifs detected in this sequence.")
+            if results:
+                st.success(f"Found {len(results)} motifs in sequence.")
             else:
-                st.success(f"Detected {len(results)} motif region(s) in {len(seq):,} bp.")
-
-    if stop_analysis:
-        st.session_state['stop_analysis'] = True
-        st.session_state['motif_results'] = []
-        st.session_state['df'] = pd.DataFrame()
-        analysis_placeholder.warning("Motif search has been reset. You may run a new analysis.")
+                st.warning("No motifs found.")
 
 elif page == "Results":
-    st.header("Motif Detection Results")
+    st.markdown("<h2 style='color:#1A5276;'>Detected Motifs</h2>", unsafe_allow_html=True)
     df = st.session_state.get('df', pd.DataFrame())
     if df.empty:
-        st.info("No results yet. Go to 'Upload & Analyze' and run analysis.")
+        st.info("No results. Please run analysis first.")
     else:
-        st.markdown(f"**Sequence length:** {len(st.session_state['seq']):,} bp")
-        st.dataframe(df[['Class', 'Subtype', 'Start', 'End', 'Length', 'Sequence', 'ScoreMethod', 'Score']],
-            use_container_width=True, hide_index=True)
-        with st.expander("Motif Class Summary"):
-            motif_counts = df["Subtype"].value_counts().reset_index()
-            motif_counts.columns = ["Motif Type", "Count"]
-            st.dataframe(motif_counts, use_container_width=True, hide_index=True)
-        # --- Hotspot Table ---
-        st.subheader("Multi-Conformational Hot Spot Regions (≥3 motifs in 100nt window)")
-        seq = st.session_state.get('seq', "")
-        if not df.empty and seq:
-            hotspots = find_hotspots(seq, df.to_dict('records'), window=100, min_count=3)
-            if hotspots:
-                st.dataframe(pd.DataFrame(hotspots))
-            else:
-                st.info("No hotspot regions detected with 3 or more motifs in any 100nt window.")
+        st.dataframe(df[['Class', 'Subtype', 'Start', 'End', 'Length', 'Sequence', 'ScoreMethod', 'Score']], use_container_width=True)
+
+        st.subheader("Motif Type Distribution")
+        counts = df['Subtype'].value_counts()
+        fig, ax = plt.subplots()
+        counts.plot(kind='bar', ax=ax)
+        ax.set_xlabel("Motif Type")
+        ax.set_ylabel("Count")
+        st.pyplot(fig)
+
+        st.subheader("Hotspot Regions (≥3 motifs in 100 nt)")
+        hotspots = find_hotspots(st.session_state['seq'], st.session_state['motif_results'], window=100, min_count=3)
+        if hotspots:
+            st.dataframe(pd.DataFrame(hotspots))
+        else:
+            st.info("No hotspot regions found.")
 
 elif page == "Visualization":
-    st.header("Motif Visualization")
+    st.markdown("<h2 style='color:#1A5276;'>Motif Visualization</h2>", unsafe_allow_html=True)
     df = st.session_state.get('df', pd.DataFrame())
-    seq = st.session_state.get('seq', "")
+    seq = st.session_state.get('seq', '')
     if df.empty:
-        st.info("No results to visualize. Run analysis first.")
+        st.info("Run analysis to generate motifs first.")
     else:
-        st.subheader("Motif Map (Full Sequence)")
         motif_types = sorted(df['Subtype'].unique())
         color_palette = sns.color_palette('husl', n_colors=len(motif_types))
         color_map = {typ: color_palette[i] for i, typ in enumerate(motif_types)}
@@ -248,129 +152,39 @@ elif page == "Visualization":
         plt.tight_layout()
         st.pyplot(fig)
 
-        st.subheader("Motif Type Distribution (Pie Chart)")
-        counts = df['Subtype'].value_counts()
-        fig2, ax2 = plt.subplots()
-        ax2.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
-        ax2.axis('equal')
-        st.pyplot(fig2)
-
-        st.subheader("Motif Counts (Bar Chart)")
-        fig3, ax3 = plt.subplots()
-        counts.plot.bar(ax=ax3)
-        ax3.set_ylabel("Count")
-        ax3.set_xlabel("Motif Type")
-        plt.tight_layout()
-        st.pyplot(fig3)
-
 elif page == "Download":
-    st.header("Download Motif Report")
+    st.markdown("<h2 style='color:#1A5276;'>Download Results</h2>", unsafe_allow_html=True)
     df = st.session_state.get('df', pd.DataFrame())
     if df.empty:
         st.info("No results to download. Run analysis first.")
     else:
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Results as CSV",
-            data=csv,
-            file_name=f"motif_results_{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv",
-            mime="text/csv"
-        )
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        st.download_button("Download CSV", data=csv, file_name="motif_results.csv", mime="text/csv")
+
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False)
-        st.download_button(
-            label="Download Results as Excel",
-            data=output.getvalue(),
-            file_name=f"motif_results_{datetime.now().strftime('%Y%m%d-%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button("Download Excel", data=excel_buffer.getvalue(), file_name="motif_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 elif page == "Additional Information":
-    st.header("Additional Information")
+    st.markdown("<h2 style='color:#1A5276;'>Additional Information</h2>", unsafe_allow_html=True)
     st.markdown("""
-    - This app detects a broad array of non-B DNA motifs using reference algorithms.
-    - For details, visit [GitHub](https://github.com/VRYella/Non-B-DNA-Finder).
-    - Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
+This app detects a broad array of non-B DNA motifs using reference algorithms.\n
+Visit [GitHub](https://github.com/VRYella/Non-B-DNA-Finder) for source code and documentation.\n
+Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
     """)
-    st.markdown("---")
-    st.subheader("How Are Motifs Predicted? (Technical, Stepwise Details)")
-    st.markdown("""
-<b>Canonical G-Quadruplex:</b><br>
-Pattern: Four runs of G (≥3) separated by 1–7 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>Relaxed G-Quadruplex:</b><br>
-Pattern: Four runs of G (≥3) separated by 1–12 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>Bulged G-Quadruplex:</b><br>
-Pattern: G-runs with up to 3 nt bulges in G-runs.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>i-Motif:</b><br>
-Pattern: Four runs of C (≥3) separated by 1–7 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter (as negative value).<br>
-<br>
-<b>G-Triplex:</b><br>
-Pattern: Three runs of G (≥3) separated by 1–7 bases, not matching G4 pattern.<br>
-Steps: Regex scan, exclude G4s. Score = 0.7 × G4Hunter.<br>
-<br>
-<b>Bipartite G4:</b><br>
-Pattern: Two G-quadruplexes within 100 nt.<br>
-Steps: Regex for two G4s separated by ≤100 bases. Score: mean G4Hunter.<br>
-<br>
-<b>Multimeric G4:</b><br>
-Pattern: Multiple tandem G4s (≥2) separated by ≤50 nt.<br>
-Steps: Regex for multiple G4s. Score: mean G4Hunter.<br>
-<br>
-<b>Z-DNA:</b><br>
-Pattern: Alternating purine/pyrimidine dinucleotides (>10 bp).<br>
-Steps: Regex for (GC|CG|GT|TG|AC|CA) repeats. Score: Z-Seeker.<br>
-<br>
-<b>H-DNA:</b><br>
-Pattern: Homopurine/homopyrimidine mirror repeats (≥10 nt) with ≤8 nt spacer.<br>
-Steps: Regex for repeats, no score.<br>
-<br>
-<b>Sticky DNA:</b><br>
-Pattern: ≥5 GAA or TTC repeats.<br>
-Steps: Regex for runs, score = number of repeats.<br>
-<br>
-<b>Slipped DNA:</b><br>
-Pattern: Direct repeats of 10–25 nt, separated by ≤10 nt.<br>
-Steps: Regex for repeats, score = repeat region length.<br>
-<br>
-<b>Cruciform DNA:</b><br>
-Pattern: Inverted repeats (arms ≥6 nt, loop ≤100 nt).<br>
-Steps: For arm/loop sizes, scan for inverted repeats; verify reverse complement.<br>
-Score: arm length.<br>
-<br>
-<b>Bent DNA:</b><br>
-Pattern: ≥3 A-tracts (3–11 nt) with 3–11 nt spacers.<br>
-Steps: Regex for periodic A-tracts, score = tract length.<br>
-<br>
-<b>APR:</b><br>
-Pattern: Same as Bent DNA.<br>
-Steps: As above.<br>
-<br>
-<b>Mirror Repeats:</b><br>
-Pattern: Two arms (≥10 nt) flanking ≤100 nt loop, arms are mirrors.<br>
-Steps: Regex for arms, verify left is reverse of right.<br>
-<br>
-<b>Quadruplex-Triplex Hybrid:</b><br>
-Pattern: G4 and triplex within 100 nt.<br>
-Steps: Regex for G4 plus triplex, no score.<br>
-<br>
-<b>Cruciform-Triplex Junction:</b><br>
-Pattern: Cruciform arms with triplex nearby.<br>
-Steps: Regex for pattern, no score.<br>
-<br>
-<b>G4-iMotif Hybrid:</b><br>
-Pattern: G4 and i-motif within 20 nt.<br>
-Steps: Find all G4s/i-motifs, report if within 20 nt.<br>
-""", unsafe_allow_html=True)
 
+elif page == "Motif Definitions Glossary":
+    st.markdown("<h2 style='color:#1A5276;'>Motif Definitions Glossary</h2>", unsafe_allow_html=True)
     st.markdown("""
----
-**Developed by [Dr. Venkata Rajesh Yella] & Chandrika Gummadi** | [GitHub](https://github.com/VRYella/Non-B-DNA-Finder)
-""")
+- **G-Quadruplex (G4):** Four runs of guanines forming a square planar structure stabilized by Hoogsteen hydrogen bonding.
+- **i-Motif:** Cytosine-rich regions that form intercalated four-stranded structures in acidic pH.
+- **Z-DNA:** Left-handed DNA helix often found in alternating purine-pyrimidine sequences.
+- **Cruciform:** Hairpin-like structures in palindromic sequences.
+- **Triplex DNA:** Three-stranded structures often formed by homopurine or homopyrimidine sequences.
+- **Sticky DNA:** Repetitive purine/pyrimidine tracts that hybridize with themselves.
+- **Bent DNA:** PolyA or PolyT tracts that locally bend the helix.
+- **APR:** A-Phased Repeats associated with nucleosome positioning.
+- **Mirror Repeats:** Symmetric sequences within the same DNA strand.
+- **Hybrid Structures:** Junctions of G4, i-Motif, triplex, and cruciform motifs co-localized in sequence.
+    """)
