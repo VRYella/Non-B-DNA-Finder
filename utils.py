@@ -45,6 +45,5 @@ def g4hunter_score(seq: str) -> float:
     return np.mean(np.array(vals)) if vals else 0.0
 
 def zseeker_score(seq: str) -> float:
-    # Simplified: % purine-pyrimidine dinucleotides
     dinucs = re.findall(r"(GC|CG|GT|TG|AC|CA)", seq)
     return len(dinucs) / (len(seq)/2) if len(seq) >= 2 else 0.0
