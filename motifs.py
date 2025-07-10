@@ -1,8 +1,16 @@
 import re
 from utils import wrap, gc_content, reverse_complement, g4hunter_score, zseeker_score
 
-def overlapping_finditer(pattern, seq):
-    return re.compile(pattern).finditer(seq)
+def non_overlapping_finditer(pattern, seq):
+    """Find non-overlapping matches"""
+    regex = re.compile(pattern)
+    pos = 0
+    while pos < len(seq):
+        match = regex.search(seq, pos)
+        if not match:
+            break
+        yield match
+        pos = match.end()  # Move past the entire match for non-overlapping
 
 def create_motif_dict(cls, subtype, match, seq, score_method="None", score="0", group=0):
     """Helper to create standardized motif dictionary"""
@@ -14,9 +22,9 @@ def create_motif_dict(cls, subtype, match, seq, score_method="None", score="0", 
     }
 
 def find_motif(seq, pattern, cls, subtype, score_method="None", score_func=None, group=0):
-    """Generic motif finder"""
+    """Generic motif finder with non-overlapping logic"""
     results = []
-    for m in overlapping_finditer(pattern, seq):
+    for m in non_overlapping_finditer(pattern, seq):
         if score_func:
             score = f"{score_func(m.group(group)):.2f}"
         else:
@@ -82,10 +90,10 @@ def find_local_bent(seq):
     return find_motif(seq, r"(?=(A{6,7}|T{6,7}))", "Bent_DNA", "Poly-A/T", group=1)
 
 def find_overlap_hybrid(seq, pattern1, pattern2, cls, subtype):
-    """Generic function to find overlapping motifs"""
+    """Generic function to find overlapping motifs (non-overlapping within each pattern)"""
     hits = []
-    hits1 = [(m.start(), m.end()) for m in overlapping_finditer(pattern1, seq)]
-    for m in overlapping_finditer(pattern2, seq):
+    hits1 = [(m.start(), m.end()) for m in non_overlapping_finditer(pattern1, seq)]
+    for m in non_overlapping_finditer(pattern2, seq):
         for start1, end1 in hits1:
             if m.start() < end1 and m.end() > start1:
                 hits.append(create_motif_dict(cls, subtype, m, seq))
