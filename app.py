@@ -32,7 +32,7 @@ if 'df' not in st.session_state:
 if 'motif_results' not in st.session_state:
     st.session_state['motif_results'] = []
 
-PAGES = ["Home", "Upload & Analyze", "Results", "Visualization", "Download"]
+PAGES = ["Home", "Upload & Analyze", "Results", "Visualization", "Download", "Additional Information"]
 page = st.sidebar.radio("Navigation", PAGES)
 
 def collect_all_motifs(seq):
@@ -195,5 +195,5 @@ elif page == "Download":
 
 st.markdown("""
 ---
-**Developed by [Your Name] & Team** | [GitHub](https://github.com/yourrepo)
+**Developed by [Dr. Venkata Rajesh Yella] & Chandrika Gummadi** | [GitHub](https://github.com/VRYella/Non-B-DNA-Finder)
 """)
