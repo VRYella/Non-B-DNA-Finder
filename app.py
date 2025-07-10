@@ -5,14 +5,14 @@ import seaborn as sns
 import re, io
 from datetime import datetime
 from motifs import (
-    find_gquadruplex, find_imotif, find_gtriplex,
+    find_gquadruplex, find_relaxed_gquadruplex, find_bulged_gquadruplex, find_gtriplex,
     find_bipartite_gquadruplex, find_multimeric_gquadruplex,
+    find_imotif, find_g4_imotif_hybrid,
     find_zdna, find_hdna, find_sticky_dna,
     find_slipped_dna, find_cruciform, find_bent_dna,
     find_apr, find_mirror_repeat,
     find_quadruplex_triplex_hybrid,
-    find_cruciform_triplex_junction,
-    find_g4_imotif_hybrid
+    find_cruciform_triplex_junction
 )
 from utils import parse_fasta, wrap
 
@@ -87,17 +87,20 @@ PAGES = [
     "Additional Information"
 ]
 
-st.sidebar.markdown('<div class="sidebar-title">🧬 Navigation</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-title"> Navigation</div>', unsafe_allow_html=True)
 page = st.sidebar.radio("", PAGES, key="nav_radio")
 
 def collect_all_motifs(seq, status_callback=None, stop_flag=None):
     results = []
     motif_steps = [
-        ("Searching for G-Quadruplex motifs...", find_gquadruplex),
-        ("Searching for i-Motif motifs...", find_imotif),
+        ("Searching for Canonical G-Quadruplex motifs...", find_gquadruplex),
+        ("Searching for Relaxed G-Quadruplex motifs...", find_relaxed_gquadruplex),
+        ("Searching for Bulged G-Quadruplex motifs...", find_bulged_gquadruplex),
         ("Searching for G-Triplex motifs...", find_gtriplex),
         ("Searching for Bipartite G-Quadruplex motifs...", find_bipartite_gquadruplex),
         ("Searching for Multimeric G-Quadruplex motifs...", find_multimeric_gquadruplex),
+        ("Searching for i-Motif motifs...", find_imotif),
+        ("Searching for G4-iMotif Hybrid motifs...", find_g4_imotif_hybrid),
         ("Searching for Z-DNA motifs...", find_zdna),
         ("Searching for H-DNA motifs...", find_hdna),
         ("Searching for Sticky DNA motifs...", find_sticky_dna),
@@ -108,7 +111,6 @@ def collect_all_motifs(seq, status_callback=None, stop_flag=None):
         ("Searching for Mirror Repeat motifs...", find_mirror_repeat),
         ("Searching for Quadruplex-Triplex Hybrid motifs...", find_quadruplex_triplex_hybrid),
         ("Searching for Cruciform-Triplex Junction motifs...", find_cruciform_triplex_junction),
-        ("Searching for G4-iMotif Hybrid motifs...", find_g4_imotif_hybrid),
     ]
     for status, func in motif_steps:
         if stop_flag is not None and stop_flag():
@@ -119,7 +121,7 @@ def collect_all_motifs(seq, status_callback=None, stop_flag=None):
             status_callback(status)
         results += func(seq)
     # Remove overlapping motifs (keep highest score if numeric)
-    results = sorted(results, key=lambda x: (x['Start'], -float(x['Score']) if str(x['Score']).replace('.','',1).isdigit() else 0))
+    results = sorted(results, key=lambda x: (x['Start'], -float(str(x['Score']).replace('NA','0').replace('.','',1)) if str(x['Score']).replace('NA','0').replace('.','',1).lstrip('-').isdigit() else 0))
     nonoverlap = []
     covered = set()
     for r in results:
@@ -138,7 +140,7 @@ if page == "Home":
 
     st.markdown("""
     **Comprehensive, fast, and reference-grade non-B DNA motif finder.**
-    - G-quadruplex, i-Motif, Bipartite G4, G-Triplex, Z-DNA (Z-Seeker), Cruciform, H-DNA, Sticky DNA, Direct/Mirror Repeats, STRs, local bends, flexible regions, and more.
+    - Canonical, Relaxed, Bulged, Multimeric, Bipartite G-quadruplex, i-Motif, G-Triplex, G4-iMotif Hybrid, Z-DNA, Cruciform, H-DNA, Sticky DNA, Direct/Mirror Repeats, STRs, local bends, flexible regions, and more.
     - Export to CSV/Excel, motif visualization included.
     """)
 
@@ -291,8 +293,16 @@ elif page == "Additional Information":
     st.markdown("---")
     st.subheader("How Are Motifs Predicted? (Technical, Stepwise Details)")
     st.markdown("""
-<b>G-Quadruplex:</b><br>
+<b>Canonical G-Quadruplex:</b><br>
 Pattern: Four runs of G (≥3) separated by 1–7 bases.<br>
+Steps: Regex scan. Each match scored by G4Hunter.<br>
+<br>
+<b>Relaxed G-Quadruplex:</b><br>
+Pattern: Four runs of G (≥3) separated by 1–12 bases.<br>
+Steps: Regex scan. Each match scored by G4Hunter.<br>
+<br>
+<b>Bulged G-Quadruplex:</b><br>
+Pattern: G-runs with up to 3 nt bulges in G-runs.<br>
 Steps: Regex scan. Each match scored by G4Hunter.<br>
 <br>
 <b>i-Motif:</b><br>
@@ -353,11 +363,11 @@ Pattern: Cruciform arms with triplex nearby.<br>
 Steps: Regex for pattern, no score.<br>
 <br>
 <b>G4-iMotif Hybrid:</b><br>
-Pattern: G4 and i-motif within 100 nt.<br>
-Steps: Find all G4s/i-motifs, report if within 100 nt.<br>
+Pattern: G4 and i-motif within 20 nt.<br>
+Steps: Find all G4s/i-motifs, report if within 20 nt.<br>
 """, unsafe_allow_html=True)
 
-st.markdown("""
+    st.markdown("""
 ---
 **Developed by [Dr. Venkata Rajesh Yella] & Chandrika Gummadi** | [GitHub](https://github.com/VRYella/Non-B-DNA-Finder)
 """)
