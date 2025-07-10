@@ -87,7 +87,7 @@ PAGES = [
     "Additional Information"
 ]
 
-st.sidebar.markdown('<div class="sidebar-title"> Navigation</div>', unsafe_allow_html=True)
+st.sidebar.markdown('<div class="sidebar-title">🧬 Navigation</div>', unsafe_allow_html=True)
 page = st.sidebar.radio("", PAGES, key="nav_radio")
 
 def collect_all_motifs(seq, status_callback=None, stop_flag=None):
