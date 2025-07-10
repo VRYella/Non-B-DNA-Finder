@@ -23,6 +23,58 @@ GGGTTTAGGGGGGAGGGGCTGCTGCTGCATGCGGGAAGGGAGGGTAGAGGGTCCGGTAGGAACCCCTAACCCCTAA
 GAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG
 """
 
+# ======= INSERT CUSTOM STYLES AND FONTS HERE =======
+st.markdown("""
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:400,700&display=swap" rel="stylesheet">
+    <style>
+        /* Global font */
+        html, body, [class*="css"]  {
+            font-family: 'Montserrat', sans-serif !important;
+        }
+
+        /* Sidebar styles */
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
+            color: #222;
+        }
+
+        /* Custom radio label styles (navigation) */
+        div[data-testid="stSidebar"] label, 
+        div[data-testid="stSidebar"] .css-1v0mbdj p,  /* fallback for other streamlit versions */
+        div[data-testid="stSidebar"] .css-1q3b5z2 {
+            font-size: 22px !important;
+            color: #1A5276 !important;
+            font-family: 'Montserrat', sans-serif !important;
+            font-weight: bold !important;
+            padding: 6px 12px !important;
+            border-radius: 8px !important;
+        }
+        /* Highlighted radio button */
+        div[data-testid="stSidebar"] .stRadio [role="radio"][aria-checked="true"] label {
+            background: linear-gradient(90deg,#a1c4fd,#c2e9fb);
+            color: #fff !important;
+            box-shadow: 0 4px 16px rgba(161,196,253,0.2);
+        }
+        /* Unselected hover effect */
+        div[data-testid="stSidebar"] .stRadio [role="radio"]:hover label {
+            background: #cfdef3;
+            color: #2874A6 !important;
+        }
+        /* Sidebar title style */
+        .sidebar-title {
+            font-size: 28px;
+            font-family: 'Montserrat', sans-serif;
+            color: #3B5998;
+            font-weight: bold;
+            margin-bottom: 20px;
+            margin-top: 10px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+# ======= END CUSTOM STYLES =======
+
 st.set_page_config(page_title="Non-B DNA Motif Finder", layout="wide")
 
 if 'seq' not in st.session_state:
@@ -33,7 +85,10 @@ if 'motif_results' not in st.session_state:
     st.session_state['motif_results'] = []
 
 PAGES = ["Home", "Upload & Analyze", "Results", "Visualization", "Download", "Additional Information"]
-page = st.sidebar.radio("Navigation", PAGES)
+
+# Insert a beautiful navigation title
+st.sidebar.markdown('<div class="sidebar-title">🧬 Navigation</div>', unsafe_allow_html=True)
+page = st.sidebar.radio("", PAGES, key="nav_radio")
 
 def collect_all_motifs(seq):
     results = []
@@ -192,6 +247,14 @@ elif page == "Download":
             file_name=f"motif_results_{datetime.now().strftime('%Y%m%d-%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+elif page == "Additional Information":
+    st.header("Additional Information")
+    st.markdown("""
+    - This app detects a broad array of non-B DNA motifs using reference algorithms.
+    - For details, visit [GitHub](https://github.com/VRYella/Non-B-DNA-Finder).
+    - Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
+    """)
 
 st.markdown("""
 ---
