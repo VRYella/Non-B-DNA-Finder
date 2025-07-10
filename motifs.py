@@ -1,376 +1,216 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-import re, io
-from datetime import datetime
-from motifs import (
-    find_gquadruplex, find_relaxed_gquadruplex, find_bulged_gquadruplex, find_gtriplex,
-    find_bipartite_gquadruplex, find_multimeric_gquadruplex,
-    find_imotif, find_g4_imotif_hybrid,
-    find_zdna, find_hdna, find_sticky_dna,
-    find_slipped_dna, find_cruciform, find_bent_dna,
-    find_apr, find_mirror_repeat,
-    find_quadruplex_triplex_hybrid,
-    find_cruciform_triplex_junction,
-    find_local_bent,  # <-- make sure this is in motifs.py!
-    find_hotspots     # <-- add to motifs.py!
-)
-from utils import parse_fasta, wrap
+import re
+from utils import wrap, gc_content, reverse_complement, g4hunter_score, zseeker_score
 
-EXAMPLE_FASTA = """>Example
-ATCGATCGATCGAAAATTTTATTTAAATTTAAATTTGGGTTAGGGTTAGGGTTAGGGCCCCCTCCCCCTCCCCCTCCCC
-ATCGATCGCGCGCGCGATCGCACACACACAGCTGCTGCTGCTTGGGAAAGGGGAAGGGTTAGGGAAAGGGGTTT
-GGGTTTAGGGGGGAGGGGCTGCTGCTGCATGCGGGAAGGGAGGGTAGAGGGTCCGGTAGGAACCCCTAACCCCTAA
-GAAAGAAGAAGAAGAAGAAGAAAGGAAGGAAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGG
-"""
+def overlapping_finditer(pattern, seq):
+    regex = re.compile(pattern)
+    for m in regex.finditer(seq):
+        yield m
 
-# ======= STYLES AND FONTS =======
-st.markdown("""
-    <link href="https://fonts.googleapis.com/css?family=Montserrat:400,700&display=swap" rel="stylesheet">
-    <style>
-        html, body, [class*="css"]  {
-            font-family: 'Montserrat', sans-serif !important;
-        }
-        section[data-testid="stSidebar"] {
-            background: linear-gradient(135deg, #e0eafc 0%, #cfdef3 100%);
-            color: #222;
-        }
-        div[data-testid="stSidebar"] label {
-            font-size: 22px !important;
-            color: #1A5276 !important;
-            font-family: 'Montserrat', sans-serif !important;
-            font-weight: bold !important;
-            padding: 6px 12px !important;
-            border-radius: 8px !important;
-        }
-        div[data-testid="stSidebar"] .stRadio [role="radio"][aria-checked="true"] label {
-            background: linear-gradient(90deg,#a1c4fd,#c2e9fb);
-            color: #fff !important;
-            box-shadow: 0 4px 16px rgba(161,196,253,0.2);
-        }
-        div[data-testid="stSidebar"] .stRadio [role="radio"]:hover label {
-            background: #cfdef3;
-            color: #2874A6 !important;
-        }
-        .sidebar-title {
-            font-size: 28px;
-            font-family: 'Montserrat', sans-serif;
-            color: #3B5998;
-            font-weight: bold;
-            margin-bottom: 20px;
-            margin-top: 10px;
-            text-align: center;
-            letter-spacing: 1px;
-        }
-    </style>
-""", unsafe_allow_html=True)
-# ======= END STYLES =======
-
-st.set_page_config(page_title="Non-B DNA Motif Finder", layout="wide")
-
-if 'seq' not in st.session_state:
-    st.session_state['seq'] = ""
-if 'df' not in st.session_state:
-    st.session_state['df'] = pd.DataFrame()
-if 'motif_results' not in st.session_state:
-    st.session_state['motif_results'] = []
-if 'analysis_status' not in st.session_state:
-    st.session_state['analysis_status'] = ""
-if 'stop_analysis' not in st.session_state:
-    st.session_state['stop_analysis'] = False
-
-PAGES = [
-    "Home",
-    "Upload & Analyze",
-    "Results",
-    "Visualization",
-    "Download",
-    "Additional Information"
-]
-
-st.sidebar.markdown('<div class="sidebar-title"> Navigation</div>', unsafe_allow_html=True)
-page = st.sidebar.radio("", PAGES, key="nav_radio")
-
-def collect_all_motifs(seq, status_callback=None, stop_flag=None):
-    results = []
-    motif_steps = [
-        ("Searching for Canonical G-Quadruplex motifs...", find_gquadruplex),
-        ("Searching for Relaxed G-Quadruplex motifs...", find_relaxed_gquadruplex),
-        ("Searching for Bulged G-Quadruplex motifs...", find_bulged_gquadruplex),
-        ("Searching for G-Triplex motifs...", find_gtriplex),
-        ("Searching for Bipartite G-Quadruplex motifs...", find_bipartite_gquadruplex),
-        ("Searching for Multimeric G-Quadruplex motifs...", find_multimeric_gquadruplex),
-        ("Searching for i-Motif motifs...", find_imotif),
-        ("Searching for G4-iMotif Hybrid motifs...", find_g4_imotif_hybrid),
-        ("Searching for Z-DNA motifs...", find_zdna),
-        ("Searching for H-DNA motifs...", find_hdna),
-        ("Searching for Sticky DNA motifs...", find_sticky_dna),
-        ("Searching for Slipped DNA motifs...", find_slipped_dna),
-        ("Searching for Cruciform motifs...", find_cruciform),
-        ("Searching for Bent DNA motifs...", find_bent_dna),
-        ("Searching for Local Bent motifs...", find_local_bent),  # <-- local bent, A/T runs (6-7)
-        ("Searching for APR motifs...", find_apr),
-        ("Searching for Mirror Repeat motifs...", find_mirror_repeat),
-        ("Searching for Quadruplex-Triplex Hybrid motifs...", find_quadruplex_triplex_hybrid),
-        ("Searching for Cruciform-Triplex Junction motifs...", find_cruciform_triplex_junction),
+def find_gquadruplex(seq):
+    # Allow loops of length 0–7 (so uninterrupted G runs are detected)
+    pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))"
+    return [
+        dict(Class="Quadruplex", Subtype="Canonical_G-Quadruplex", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group(0)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
     ]
-    for status, func in motif_steps:
-        if stop_flag is not None and stop_flag():
-            if status_callback is not None:
-                status_callback("Motif search stopped by user.")
-            return []
-        if status_callback is not None:
-            status_callback(status)
-        results += func(seq)
-    return results  # return all (overlapping) results
 
-if page == "Home":
-    st.title("Non-B DNA Motif Finder")
-    try:
-        st.image("nbd.PNG", use_container_width=True)
-    except Exception:
-        st.warning("Logo image (nbd.PNG) not found. Place it in the app folder.")
+def find_relaxed_gquadruplex(seq):
+    pattern = r"(?=(G{3,}(?:[ATGC]{0,12}G{3,}){3}))"
+    return [
+        dict(Class="Quadruplex", Subtype="Relaxed_G-Quadruplex", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group(0)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-    st.markdown("""
-    **Comprehensive, fast, and reference-grade non-B DNA motif finder.**
-    - Canonical, Relaxed, Bulged, Multimeric, Bipartite G-quadruplex, i-Motif, G-Triplex, G4-iMotif Hybrid, Z-DNA, Cruciform, H-DNA, Sticky DNA, Direct/Mirror Repeats, STRs, local bends, flexible regions, and more.
-    - Export to CSV/Excel, motif visualization included.
-    """)
+def find_bulged_gquadruplex(seq):
+    # Allow up to 3 non-Gs in G runs
+    pattern = r"(?=(G{3,}[ATGC]{0,3}G{3,}[ATGC]{0,3}G{3,}[ATGC]{0,3}G{3,}))"
+    return [
+        dict(Class="Quadruplex", Subtype="Bulged_G-Quadruplex", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="G4Hunter (bulge)", Score=f"{g4hunter_score(m.group(1)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-elif page == "Upload & Analyze":
-    st.header("Input Sequence")
-    col1, col2 = st.columns([1,1])
-    with col1:
-        fasta_file = st.file_uploader("Upload FASTA file", type=["fa", "fasta", "txt"])
-        if fasta_file:
-            try:
-                seq = parse_fasta(fasta_file.read().decode("utf-8"))
-                st.session_state['seq'] = seq
-                st.success("FASTA file loaded!")
-            except Exception:
-                st.error("Could not parse file as UTF-8 or FASTA.")
-    with col2:
-        if st.button("Use Example Sequence"):
-            st.session_state['seq'] = parse_fasta(EXAMPLE_FASTA)
-        seq_input = st.text_area("Paste sequence (FASTA or raw)", value=st.session_state.get('seq', ""), height=120)
-        if seq_input:
-            try:
-                seq = parse_fasta(seq_input)
-                st.session_state['seq'] = seq
-            except Exception:
-                st.error("Paste a valid FASTA or sequence.")
+def find_imotif(seq):
+    pattern = r"(?=(C{3,}(?:[ATGC]{0,7}C{3,}){3}))"
+    return [
+        dict(Class="Quadruplex", Subtype="i-Motif", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="G4Hunter", Score=f"{-g4hunter_score(m.group(0).replace('C','G')):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-    # Run Analysis and Stop/Reset Buttons
-    colA, colB, colC = st.columns([1, 0.6, 0.8])
-    with colA:
-        run_analysis = st.button("Run Analysis")
-    with colB:
-        stop_analysis = st.button("Stop/Reset")
-    analysis_placeholder = st.empty()
+def find_gtriplex(seq):
+    pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))"
+    return [
+        dict(Class="Triplex", Subtype="G-Triplex", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group(0)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-    if run_analysis:
-        st.session_state['stop_analysis'] = False
-        seq = st.session_state.get('seq', "")
-        if not seq or not re.match("^[ATGC]+$", seq):
-            st.error("Please upload or paste a valid DNA sequence (A/T/G/C only).")
-        else:
-            progress_placeholder = st.empty()
-            def update_status(msg):
-                progress_placeholder.info(msg)
-            def stop_flag():
-                return st.session_state.get('stop_analysis', False)
-            with st.spinner("Analyzing sequence ..."):
-                results = collect_all_motifs(seq, status_callback=update_status, stop_flag=stop_flag)
-                st.session_state['motif_results'] = results
-                st.session_state['df'] = pd.DataFrame(results)
-            progress_placeholder.empty()
-            if st.session_state.get('stop_analysis', False):
-                st.warning("Motif search was stopped.")
-            elif not results:
-                st.warning("No non-B DNA motifs detected in this sequence.")
-            else:
-                st.success(f"Detected {len(results)} motif region(s) in {len(seq):,} bp.")
+def find_bipartite_gquadruplex(seq):
+    pattern = r"(?=(G{3,}(?:[ATGC]{0,30}G{3,}){3}))"
+    return [
+        dict(Class="Quadruplex", Subtype="Bipartite_G-Quadruplex", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group(0)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-    if stop_analysis:
-        st.session_state['stop_analysis'] = True
-        st.session_state['motif_results'] = []
-        st.session_state['df'] = pd.DataFrame()
-        analysis_placeholder.warning("Motif search has been reset. You may run a new analysis.")
+def find_multimeric_gquadruplex(seq):
+    # At least 5 G runs with up to 12 bases in between
+    pattern = r"(?=((G{3,}(?:[ATGC]{0,12}G{3,}){4,})))"
+    return [
+        dict(Class="Quadruplex", Subtype="Multimeric_G-Quadruplex", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="G4Hunter", Score=f"{g4hunter_score(m.group(1)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-elif page == "Results":
-    st.header("Motif Detection Results")
-    df = st.session_state.get('df', pd.DataFrame())
-    if df.empty:
-        st.info("No results yet. Go to 'Upload & Analyze' and run analysis.")
-    else:
-        st.markdown(f"**Sequence length:** {len(st.session_state['seq']):,} bp")
-        st.dataframe(df[['Class', 'Subtype', 'Start', 'End', 'Length', 'Sequence', 'ScoreMethod', 'Score']],
-            use_container_width=True, hide_index=True)
-        with st.expander("Motif Class Summary"):
-            motif_counts = df["Subtype"].value_counts().reset_index()
-            motif_counts.columns = ["Motif Type", "Count"]
-            st.dataframe(motif_counts, use_container_width=True, hide_index=True)
-        # --- Hotspot Table ---
-        st.subheader("Multi-Conformational Hot Spot Regions (≥3 motifs in 100nt window)")
-        seq = st.session_state.get('seq', "")
-        if not df.empty and seq:
-            hotspots = find_hotspots(seq, df.to_dict('records'), window=100, min_count=3)
-            if hotspots:
-                st.dataframe(pd.DataFrame(hotspots))
-            else:
-                st.info("No hotspot regions detected with 3 or more motifs in any 100nt window.")
+def find_zdna(seq):
+    pattern = r"(?=((?:CG){6,}))"
+    return [
+        dict(Class="Z-DNA", Subtype="CG_Repeat", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="ZSeeker", Score=f"{zseeker_score(m.group(1)):.2f}")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-elif page == "Visualization":
-    st.header("Motif Visualization")
-    df = st.session_state.get('df', pd.DataFrame())
-    seq = st.session_state.get('seq', "")
-    if df.empty:
-        st.info("No results to visualize. Run analysis first.")
-    else:
-        st.subheader("Motif Map (Full Sequence)")
-        motif_types = sorted(df['Subtype'].unique())
-        color_palette = sns.color_palette('husl', n_colors=len(motif_types))
-        color_map = {typ: color_palette[i] for i, typ in enumerate(motif_types)}
-        y_map = {typ: i+1 for i, typ in enumerate(motif_types)}
-        fig, ax = plt.subplots(figsize=(10, len(motif_types)*0.7+2))
-        for _, motif in df.iterrows():
-            motif_type = motif['Subtype']
-            y = y_map[motif_type]
-            color = color_map[motif_type]
-            ax.hlines(y, motif['Start'], motif['End'], color=color, linewidth=8)
-        ax.set_yticks(list(y_map.values()))
-        ax.set_yticklabels(list(y_map.keys()))
-        ax.set_xlim(0, len(seq)+1)
-        ax.set_xlabel('Position on Sequence (bp)')
-        ax.set_title('Motif Map (Full Sequence)')
-        sns.despine(left=False, bottom=False)
-        plt.tight_layout()
-        st.pyplot(fig)
+def find_hdna(seq):
+    pattern = r"(?=(T{3,}[ATGC]{1,7}A{3,}))"
+    return [
+        dict(Class="H-DNA", Subtype="T-A", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-        st.subheader("Motif Type Distribution (Pie Chart)")
-        counts = df['Subtype'].value_counts()
-        fig2, ax2 = plt.subplots()
-        ax2.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140)
-        ax2.axis('equal')
-        st.pyplot(fig2)
+def find_sticky_dna(seq):
+    pattern = r"(?=(CTGCTGCTGCTG))"
+    return [
+        dict(Class="Sticky_DNA", Subtype="CTG", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-        st.subheader("Motif Counts (Bar Chart)")
-        fig3, ax3 = plt.subplots()
-        counts.plot.bar(ax=ax3)
-        ax3.set_ylabel("Count")
-        ax3.set_xlabel("Motif Type")
-        plt.tight_layout()
-        st.pyplot(fig3)
+def find_slipped_dna(seq):
+    pattern = r"(?=((?:AT){6,}))"
+    return [
+        dict(Class="Slipped_DNA", Subtype="AT_Slippage", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-elif page == "Download":
-    st.header("Download Motif Report")
-    df = st.session_state.get('df', pd.DataFrame())
-    if df.empty:
-        st.info("No results to download. Run analysis first.")
-    else:
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Results as CSV",
-            data=csv,
-            file_name=f"motif_results_{datetime.now().strftime('%Y%m%d-%H%M%S')}.csv",
-            mime="text/csv"
-        )
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False)
-        st.download_button(
-            label="Download Results as Excel",
-            data=output.getvalue(),
-            file_name=f"motif_results_{datetime.now().strftime('%Y%m%d-%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+def find_cruciform(seq):
+    pattern = r"(?=(A{4,}TTTT))"
+    return [
+        dict(Class="Cruciform", Subtype="A-T", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-elif page == "Additional Information":
-    st.header("Additional Information")
-    st.markdown("""
-    - This app detects a broad array of non-B DNA motifs using reference algorithms.
-    - For details, visit [GitHub](https://github.com/VRYella/Non-B-DNA-Finder).
-    - Developed by Dr. Venkata Rajesh Yella & Chandrika Gummadi.
-    """)
-    st.markdown("---")
-    st.subheader("How Are Motifs Predicted? (Technical, Stepwise Details)")
-    st.markdown("""
-<b>Canonical G-Quadruplex:</b><br>
-Pattern: Four runs of G (≥3) separated by 1–7 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>Relaxed G-Quadruplex:</b><br>
-Pattern: Four runs of G (≥3) separated by 1–12 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>Bulged G-Quadruplex:</b><br>
-Pattern: G-runs with up to 3 nt bulges in G-runs.<br>
-Steps: Regex scan. Each match scored by G4Hunter.<br>
-<br>
-<b>i-Motif:</b><br>
-Pattern: Four runs of C (≥3) separated by 1–7 bases.<br>
-Steps: Regex scan. Each match scored by G4Hunter (as negative value).<br>
-<br>
-<b>G-Triplex:</b><br>
-Pattern: Three runs of G (≥3) separated by 1–7 bases, not matching G4 pattern.<br>
-Steps: Regex scan, exclude G4s. Score = 0.7 × G4Hunter.<br>
-<br>
-<b>Bipartite G4:</b><br>
-Pattern: Two G-quadruplexes within 100 nt.<br>
-Steps: Regex for two G4s separated by ≤100 bases. Score: mean G4Hunter.<br>
-<br>
-<b>Multimeric G4:</b><br>
-Pattern: Multiple tandem G4s (≥2) separated by ≤50 nt.<br>
-Steps: Regex for multiple G4s. Score: mean G4Hunter.<br>
-<br>
-<b>Z-DNA:</b><br>
-Pattern: Alternating purine/pyrimidine dinucleotides (>10 bp).<br>
-Steps: Regex for (GC|CG|GT|TG|AC|CA) repeats. Score: Z-Seeker.<br>
-<br>
-<b>H-DNA:</b><br>
-Pattern: Homopurine/homopyrimidine mirror repeats (≥10 nt) with ≤8 nt spacer.<br>
-Steps: Regex for repeats, no score.<br>
-<br>
-<b>Sticky DNA:</b><br>
-Pattern: ≥5 GAA or TTC repeats.<br>
-Steps: Regex for runs, score = number of repeats.<br>
-<br>
-<b>Slipped DNA:</b><br>
-Pattern: Direct repeats of 10–25 nt, separated by ≤10 nt.<br>
-Steps: Regex for repeats, score = repeat region length.<br>
-<br>
-<b>Cruciform DNA:</b><br>
-Pattern: Inverted repeats (arms ≥6 nt, loop ≤100 nt).<br>
-Steps: For arm/loop sizes, scan for inverted repeats; verify reverse complement.<br>
-Score: arm length.<br>
-<br>
-<b>Bent DNA:</b><br>
-Pattern: ≥3 A-tracts (3–11 nt) with 3–11 nt spacers.<br>
-Steps: Regex for periodic A-tracts, score = tract length.<br>
-<br>
-<b>APR:</b><br>
-Pattern: Same as Bent DNA.<br>
-Steps: As above.<br>
-<br>
-<b>Mirror Repeats:</b><br>
-Pattern: Two arms (≥10 nt) flanking ≤100 nt loop, arms are mirrors.<br>
-Steps: Regex for arms, verify left is reverse of right.<br>
-<br>
-<b>Quadruplex-Triplex Hybrid:</b><br>
-Pattern: G4 and triplex within 100 nt.<br>
-Steps: Regex for G4 plus triplex, no score.<br>
-<br>
-<b>Cruciform-Triplex Junction:</b><br>
-Pattern: Cruciform arms with triplex nearby.<br>
-Steps: Regex for pattern, no score.<br>
-<br>
-<b>G4-iMotif Hybrid:</b><br>
-Pattern: G4 and i-motif within 20 nt.<br>
-Steps: Find all G4s/i-motifs, report if within 20 nt.<br>
-""", unsafe_allow_html=True)
+def find_bent_dna(seq):
+    # Local bent regions: polyA or polyT (6 or 7)
+    pattern = r"(?=(A{6,7}|T{6,7}))"
+    return [
+        dict(Class="Bent_DNA", Subtype="Poly-A/T", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
 
-    st.markdown("""
----
-**Developed by [Dr. Venkata Rajesh Yella] & Chandrika Gummadi** | [GitHub](https://github.com/VRYella/Non-B-DNA-Finder)
-""")
+def find_apr(seq):
+    pattern = r"(?=(?:AAATT){2,})"
+    return [
+        dict(Class="A-Phased_Repeat", Subtype="APR", Start=m.start()+1, End=m.start()+len(m.group(0)), Length=len(m.group(0)),
+             Sequence=wrap(m.group(0)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
+
+def find_mirror_repeat(seq):
+    pattern = r"(?=(ATCGCGAT))"
+    return [
+        dict(Class="Mirror_Repeat", Subtype="ATCGCGAT", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
+
+def find_quadruplex_triplex_hybrid(seq):
+    g4_pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))"
+    triplex_pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))"
+    hits = []
+    g4_hits = [(m.start(), m.end()) for m in overlapping_finditer(g4_pattern, seq)]
+    for m in overlapping_finditer(triplex_pattern, seq):
+        for g4_start, g4_end in g4_hits:
+            if (m.start() < g4_end and m.end() > g4_start):
+                hits.append(dict(Class="Hybrid", Subtype="G4-Triplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+                                 Sequence=wrap(seq[m.start():m.end()]), ScoreMethod="None", Score="0"))
+                break
+    return hits
+
+def find_cruciform_triplex_junction(seq):
+    cruciform_pattern = r"(?=(A{4,}TTTT))"
+    triplex_pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))"
+    hits = []
+    cruciform_hits = [(m.start(), m.end()) for m in overlapping_finditer(cruciform_pattern, seq)]
+    for m in overlapping_finditer(triplex_pattern, seq):
+        for c_start, c_end in cruciform_hits:
+            if (m.start() < c_end and m.end() > c_start):
+                hits.append(dict(Class="Junction", Subtype="Cruciform-Triplex", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+                                 Sequence=wrap(seq[m.start():m.end()]), ScoreMethod="None", Score="0"))
+                break
+    return hits
+
+def find_g4_imotif_hybrid(seq):
+    g4_pattern = r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))"
+    imotif_pattern = r"(?=(C{3,}(?:[ATGC]{0,7}C{3,}){3}))"
+    hits = []
+    g4_hits = [(m.start(), m.end()) for m in overlapping_finditer(g4_pattern, seq)]
+    for m in overlapping_finditer(imotif_pattern, seq):
+        for g4_start, g4_end in g4_hits:
+            if (m.start() < g4_end and m.end() > g4_start):
+                hits.append(dict(Class="Hybrid", Subtype="G4-i-Motif", Start=m.start()+1, End=m.end(), Length=m.end()-m.start(),
+                                 Sequence=wrap(seq[m.start():m.end()]), ScoreMethod="None", Score="0"))
+                break
+    return hits
+
+def find_polyG(seq):
+    pattern = r"(?=(G{6,}))"
+    return [
+        dict(Class="Direct_Repeat", Subtype="Poly-G", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
+
+def find_local_bent(seq):
+    # Poly-A/T as local bend, but let's keep this for clarity
+    pattern = r"(?=(A{6,7}|T{6,7}))"
+    return [
+        dict(Class="Bent_DNA", Subtype="Poly-A/T", Start=m.start()+1, End=m.start()+len(m.group(1)), Length=len(m.group(1)),
+             Sequence=wrap(m.group(1)), ScoreMethod="None", Score="0")
+        for m in overlapping_finditer(pattern, seq)
+    ]
+
+def all_motifs(seq):
+    motif_funcs = [
+        find_gquadruplex, find_relaxed_gquadruplex, find_bulged_gquadruplex,
+        find_imotif, find_gtriplex, find_bipartite_gquadruplex, find_multimeric_gquadruplex,
+        find_zdna, find_hdna, find_sticky_dna, find_slipped_dna, find_cruciform,
+        find_bent_dna, find_apr, find_mirror_repeat,
+        find_quadruplex_triplex_hybrid, find_cruciform_triplex_junction, find_g4_imotif_hybrid,
+        find_polyG,  # Poly-G direct repeat
+        find_local_bent
+    ]
+    all_hits = []
+    for func in motif_funcs:
+        all_hits.extend(func(seq))
+    return all_hits
+
+def find_hotspots(seq, motif_hits, window=100, min_count=3):
+    n = len(seq)
+    hotspots = []
+    motif_positions = [(hit["Start"], hit["End"]) for hit in motif_hits]
+    for i in range(1, n-window+2):
+        region_start = i
+        region_end = i + window - 1
+        count = sum(mstart <= region_end and mend >= region_start for mstart, mend in motif_positions)
+        if count >= min_count:
+            hotspots.append(dict(RegionStart=region_start, RegionEnd=region_end, MotifCount=count))
+    # Remove duplicates by region
+    unique_hotspots = {(h['RegionStart'], h['RegionEnd']): h for h in hotspots}
+    return list(unique_hotspots.values())
