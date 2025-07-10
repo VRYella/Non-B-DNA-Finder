@@ -34,7 +34,7 @@ def find_motif(seq, pattern, cls, subtype, score_method="None", score_func=None,
 
 # G-Quadruplex variants
 def find_gquadruplex(seq):
-    return find_motif(seq, r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))", 
+    return find_motif(seq, r"(?=(G{3,}([ATGC]{1,7}G{3,}){3}))", 
                      "Quadruplex", "Canonical_G-Quadruplex", "G4Hunter", g4hunter_score)
 
 def find_relaxed_gquadruplex(seq):
@@ -54,12 +54,12 @@ def find_multimeric_gquadruplex(seq):
                      "Quadruplex", "Multimeric_G-Quadruplex", "G4Hunter", g4hunter_score, 1)
 
 def find_imotif(seq):
-    return find_motif(seq, r"(?=(C{3,}(?:[ATGC]{0,7}C{3,}){3}))", 
+    return find_motif(seq, r"(?=(C{3,}([ATGC]{1,7}C{3,}){3}))", 
                      "Quadruplex", "i-Motif", "G4Hunter", 
                      lambda x: -g4hunter_score(x.replace('C','G')))
 
 def find_gtriplex(seq):
-    return find_motif(seq, r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))", 
+    return find_motif(seq, r"(?=(G{3,}([ATGC]{1,7}G{3,}){2}))", 
                      "Triplex", "G-Triplex", "G4Hunter", g4hunter_score)
 
 def find_zdna(seq):
@@ -101,18 +101,18 @@ def find_overlap_hybrid(seq, pattern1, pattern2, cls, subtype):
     return hits
 
 def find_quadruplex_triplex_hybrid(seq):
-    return find_overlap_hybrid(seq, r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))", 
-                              r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))", 
+    return find_overlap_hybrid(seq, r"(?=(G{3,}([ATGC]{1,7}G{3,}){3}))", 
+                              r"(?=(G{3,}([ATGC]{1,7}G{3,}){2}))", 
                               "Hybrid", "G4-Triplex")
 
 def find_cruciform_triplex_junction(seq):
     return find_overlap_hybrid(seq, r"(?=(A{4,}TTTT))", 
-                              r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){2}))", 
+                              r"(?=(G{3,}([ATGC]{1,7}G{3,}){2}))", 
                               "Junction", "Cruciform-Triplex")
 
 def find_g4_imotif_hybrid(seq):
-    return find_overlap_hybrid(seq, r"(?=(G{3,}(?:[ATGC]{0,7}G{3,}){3}))", 
-                              r"(?=(C{3,}(?:[ATGC]{0,7}C{3,}){3}))", 
+    return find_overlap_hybrid(seq, r"(?=(G{3,}([ATGC]{1,7}G{3,}){3}))", 
+                              r"(?=(C{3,}([ATGC]{1,7}C{3,}){3}))", 
                               "Hybrid", "G4-i-Motif")
 
 def find_polyG(seq):
